@@ -46,3 +46,23 @@ Primary columns include:
 - This notebook intentionally keeps transformation minimal (bronze pattern).
 - Planetary Computer credentials are not required for basic STAC metadata search.
 - Use this as a starter pattern for repeatable data engineering and promotion controls.
+
+## Automated Fabric setup via code
+
+This repo includes a PowerShell provisioning script that creates the full demo foundation in Fabric:
+
+- Dev, Test, and Prod workspaces
+- Bronze Lakehouse in each workspace
+- Deployment pipeline and workspace-stage assignments
+
+Run from repo root:
+
+```powershell
+.\scripts\fabric\setup_fabric_demo.ps1 -ConfigPath ".\cicd\fabric-setup.config.json" -OutputPath ".\cicd\fabric-setup.output.json"
+```
+
+Files:
+
+- `scripts/fabric/setup_fabric_demo.ps1`
+- `cicd/fabric-setup.config.json`
+- `cicd/fabric-setup.output.json` (generated execution summary)

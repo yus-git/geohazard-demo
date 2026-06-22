@@ -1,0 +1,15 @@
+{
+  "workspacePrefix": "geohazard-demo",
+  "capacityId": "",
+  "workspaceDescription": "Fabric CI/CD geohazard bronze ingestion demo",
+  "lakehouses": [
+    {
+      "displayName": "bronze_lakehouse",
+      "description": "Bronze ingestion storage for planetary metadata"
+    }
+  ],
+  "deploymentPipeline": {
+    "displayName": "geohazard-demo-pipeline",
+    "description": "Dev-Test-Prod promotion pipeline for geohazard bronze demo"
+  }
+}
