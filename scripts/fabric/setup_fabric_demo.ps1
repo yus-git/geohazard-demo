@@ -264,27 +264,58 @@ function Get-OrCreate-Notebook {
 
     $items = Invoke-RestJson -Method "GET" -Url "https://api.fabric.microsoft.com/v1/workspaces/$WorkspaceId/items" -AccessToken $FabricToken
     $existing = @($items.Body.value) | Where-Object { $_.type -eq "Notebook" -and $_.displayName -eq $NotebookDisplayName } | Select-Object -First 1
+    
+    $notebookItem = $null
     if ($existing) {
         Write-Host "Notebook already exists: $NotebookDisplayName (ID: $($existing.id))" -ForegroundColor Green
-        return $existing
+        $notebookItem = $existing
+    }
+    else {
+        $payload = @{
+            displayName = $NotebookDisplayName
+            description = "Bronze ingestion notebook for Fabric CI/CD demo - Lakehouse: $LakehouseId"
+            type = "Notebook"
+        }
+
+        $created = Invoke-RestJson -Method "POST" -Url "https://api.fabric.microsoft.com/v1/workspaces/$WorkspaceId/items" -AccessToken $FabricToken -Body $payload
+        $notebookItem = $created.Body
+
+        if ($notebookItem -and $notebookItem.id) {
+            Write-Host "Notebook created: $($notebookItem.displayName) (ID: $($notebookItem.id))" -ForegroundColor Green
+        }
+        else {
+            Write-Warning "Notebook creation response did not include expected fields."
+            return $null
+        }
     }
 
-    $payload = @{
-        displayName = $NotebookDisplayName
-        description = "Bronze ingestion notebook for Fabric CI/CD demo - Lakehouse: $LakehouseId"
-        type = "Notebook"
+    try {
+        $notebookContent = Get-Content $NotebookPath -Raw
+        $notebookJson = $notebookContent | ConvertFrom-Json
+        
+        $updatePayload = @{
+            definition = @{
+                format = "ipynb"
+                parts = @(
+                    @{
+                        path = "notebook-content.ipynb"
+                        payload = [System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($notebookContent))
+                        payloadType = "InlineBase64"
+                    }
+                )
+            }
+        }
+
+        $updateUrl = "https://api.fabric.microsoft.com/v1/workspaces/$WorkspaceId/items/$($notebookItem.id)/updateDefinition"
+        Invoke-RestJson -Method "POST" -Url $updateUrl -AccessToken $FabricToken -Body $updatePayload | Out-Null
+        Write-Host "Notebook content imported successfully" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "Note: Notebook content import not yet supported via this API version. Notebook item created but is empty." -ForegroundColor Yellow
+        Write-Host "Please manually add cells or use Fabric UI to import the notebook file." -ForegroundColor Yellow
     }
 
-    $created = Invoke-RestJson -Method "POST" -Url "https://api.fabric.microsoft.com/v1/workspaces/$WorkspaceId/items" -AccessToken $FabricToken -Body $payload
-    $notebookItem = $created.Body
-
-    if ($notebookItem -and $notebookItem.id) {
-        Write-Host "Notebook created: $($notebookItem.displayName) (ID: $($notebookItem.id))" -ForegroundColor Green
-        return $notebookItem
-    }
-
-    Write-Warning "Notebook creation response did not include expected fields."
-    return $null
+    return $notebookItem
 }
 
 if (-not (Test-Path $ConfigPath)) {
