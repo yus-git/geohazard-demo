@@ -5,7 +5,7 @@ A lightweight repo to demonstrate end-to-end Fabric engineering patterns:
 1. Parameterized notebook ingestion from Microsoft Planetary Computer STAC API
 2. Bronze write into a Lakehouse Delta table
 3. Git integration for source control
-4. Promotion through Fabric Deployment Pipelines (Dev -> Test -> Prod)
+4. Promotion path through a Fabric Deployment Pipeline
 
 ## Repo structure
 
@@ -17,11 +17,11 @@ A lightweight repo to demonstrate end-to-end Fabric engineering patterns:
 
 ## Demo flow
 
-1. Open the notebook in Fabric and attach a Lakehouse.
+1. Open the notebook in Fabric workspace `geohazard-demo` and attach `bronze_lakehouse`.
 2. Set parameters (collection, center point, radius, date range).
 3. Run notebook to ingest STAC item metadata and write to bronze table.
 4. Commit notebook changes via Fabric Git integration.
-5. Promote artifacts through Deployment Pipeline stages.
+5. Demonstrate pipeline path by assigning the workspace to stage 0.
 
 ## Bronze output
 
@@ -51,9 +51,9 @@ Primary columns include:
 
 This repo includes a PowerShell provisioning script that creates the full demo foundation in Fabric:
 
-- Dev, Test, and Prod workspaces
-- Bronze Lakehouse in each workspace
-- Deployment pipeline and workspace-stage assignments
+- One demo workspace
+- Bronze Lakehouse in that workspace
+- Deployment pipeline and stage 0 workspace assignment
 
 Run from repo root:
 

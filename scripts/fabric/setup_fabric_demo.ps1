@@ -224,6 +224,15 @@ function Assign-Workspace-To-PipelineStage {
         [string]$PowerBiToken
     )
 
+    $stages = Invoke-RestJson -Method "GET" -Url "https://api.powerbi.com/v1.0/myorg/pipelines/$PipelineId/stages" -AccessToken $PowerBiToken
+    $targetStage = @($stages.Body.value) | Where-Object { $_.order -eq $StageOrder } | Select-Object -First 1
+    if ($targetStage -and ($targetStage.PSObject.Properties.Name -contains "workspaceId") -and $targetStage.workspaceId) {
+        if ([string]$targetStage.workspaceId -eq [string]$WorkspaceId) {
+            return "already_assigned"
+        }
+        return "stage_occupied"
+    }
+
     $payload = @{ workspaceId = $WorkspaceId }
 
     try {
@@ -232,7 +241,7 @@ function Assign-Workspace-To-PipelineStage {
     }
     catch {
         $msg = $_.Exception.Message
-        if ($msg -match "already" -or $msg -match "Conflict" -or $msg -match "409") {
+        if ($msg -match "already" -or $msg -match "Conflict" -or $msg -match "409" -or $msg -match "StageAlreadyHasWorkspace" -or $msg -match "Alm_InvalidRequest_StageAlreadyHasWorkspace") {
             return "already_assigned"
         }
         throw
@@ -259,58 +268,59 @@ else {
     Write-Output "Using capacityId: $capacityId"
 }
 
-$workspacePrefix = [string]$config.workspacePrefix
+$workspaceName = [string]$config.workspaceName
+if ([string]::IsNullOrWhiteSpace($workspaceName)) {
+    $workspacePrefix = [string]$config.workspacePrefix
+    if (-not [string]::IsNullOrWhiteSpace($workspacePrefix)) {
+        $workspaceName = "$workspacePrefix-dev"
+    }
+}
+
+if ([string]::IsNullOrWhiteSpace($workspaceName)) {
+    throw "Config must provide workspaceName (or legacy workspacePrefix)."
+}
+
 $workspaceDescription = [string]$config.workspaceDescription
-$envNames = @("dev", "test", "prod")
+$workspace = Get-OrCreate-Workspace -DisplayName $workspaceName -Description $workspaceDescription -CapacityId $capacityId -FabricToken $fabricToken
 
-$workspaceResults = @()
-foreach ($env in $envNames) {
-    $wsName = "$workspacePrefix-$env"
-    $workspace = Get-OrCreate-Workspace -DisplayName $wsName -Description $workspaceDescription -CapacityId $capacityId -FabricToken $fabricToken
-
-    $lakehouseResults = @()
-    foreach ($lh in $config.lakehouses) {
-        $lakehouse = Get-OrCreate-Lakehouse -WorkspaceId $workspace.id -DisplayName ([string]$lh.displayName) -Description ([string]$lh.description) -FabricToken $fabricToken
-        $lakehouseResults += [PSCustomObject]@{
-            displayName = $lakehouse.displayName
-            id = $lakehouse.id
-            type = $lakehouse.type
-        }
+$lakehouseResults = @()
+foreach ($lh in $config.lakehouses) {
+    $lakehouse = Get-OrCreate-Lakehouse -WorkspaceId $workspace.id -DisplayName ([string]$lh.displayName) -Description ([string]$lh.description) -FabricToken $fabricToken
+    $lakehouseResults += [PSCustomObject]@{
+        displayName = $lakehouse.displayName
+        id = $lakehouse.id
+        type = $lakehouse.type
     }
+}
 
-    $workspaceResults += [PSCustomObject]@{
-        environment = $env
-        workspaceName = $workspace.displayName
-        workspaceId = $workspace.id
-        capacityId = $workspace.capacityId
-        lakehouses = $lakehouseResults
-    }
+$workspaceResult = [PSCustomObject]@{
+    workspaceName = $workspace.displayName
+    workspaceId = $workspace.id
+    capacityId = $workspace.capacityId
+    lakehouses = $lakehouseResults
 }
 
 $pipelineCfg = $config.deploymentPipeline
 $pipeline = Get-OrCreate-DeploymentPipeline -DisplayName ([string]$pipelineCfg.displayName) -Description ([string]$pipelineCfg.description) -PowerBiToken $powerBiToken
 
-$assignment = @()
-for ($i = 0; $i -lt $workspaceResults.Count; $i++) {
-    $state = Assign-Workspace-To-PipelineStage -PipelineId $pipeline.id -StageOrder $i -WorkspaceId $workspaceResults[$i].workspaceId -PowerBiToken $powerBiToken
-    $assignment += [PSCustomObject]@{
-        stageOrder = $i
-        workspaceName = $workspaceResults[$i].workspaceName
-        workspaceId = $workspaceResults[$i].workspaceId
-        status = $state
-    }
-}
+$stage0State = Assign-Workspace-To-PipelineStage -PipelineId $pipeline.id -StageOrder 0 -WorkspaceId $workspaceResult.workspaceId -PowerBiToken $powerBiToken
 
 $output = [PSCustomObject]@{
     generatedAtUtc = (Get-Date).ToUniversalTime().ToString("o")
-    workspacePrefix = $workspacePrefix
+    workspaceName = $workspaceName
     capacityId = $capacityId
     deploymentPipeline = [PSCustomObject]@{
         id = $pipeline.id
         displayName = $pipeline.displayName
     }
-    workspaces = $workspaceResults
-    stageAssignments = $assignment
+    workspace = $workspaceResult
+    stage0Assignment = [PSCustomObject]@{
+        stageOrder = 0
+        workspaceName = $workspaceResult.workspaceName
+        workspaceId = $workspaceResult.workspaceId
+        status = $stage0State
+    }
+    note = "Single-workspace demo mode: stage 0 is assigned. To perform actual cross-stage deployment, assign additional workspaces to later stages."
 }
 
 $output | ConvertTo-Json -Depth 50 | Set-Content -Path $OutputPath

@@ -1,5 +1,5 @@
 {
-  "workspacePrefix": "geohazard-demo",
+  "workspaceName": "geohazard-demo",
   "capacityId": "",
   "workspaceDescription": "Fabric CI/CD geohazard bronze ingestion demo",
   "lakehouses": [
@@ -9,7 +9,7 @@
     }
   ],
   "deploymentPipeline": {
-    "displayName": "geohazard-demo-pipeline",
-    "description": "Dev-Test-Prod promotion pipeline for geohazard bronze demo"
+    "displayName": "geohazard-demo-single-pipeline",
+    "description": "Single-workspace pipeline demo for geohazard bronze ingestion"
   }
 }
