@@ -248,6 +248,45 @@ function Assign-Workspace-To-PipelineStage {
     }
 }
 
+function Get-OrCreate-Notebook {
+    param(
+        [string]$WorkspaceId,
+        [string]$LakehouseId,
+        [string]$NotebookPath,
+        [string]$NotebookDisplayName,
+        [string]$FabricToken
+    )
+
+    if (-not (Test-Path $NotebookPath)) {
+        Write-Warning "Notebook file not found at: $NotebookPath. Skipping notebook creation."
+        return $null
+    }
+
+    $items = Invoke-RestJson -Method "GET" -Url "https://api.fabric.microsoft.com/v1/workspaces/$WorkspaceId/items" -AccessToken $FabricToken
+    $existing = @($items.Body.value) | Where-Object { $_.type -eq "Notebook" -and $_.displayName -eq $NotebookDisplayName } | Select-Object -First 1
+    if ($existing) {
+        Write-Host "Notebook already exists: $NotebookDisplayName (ID: $($existing.id))" -ForegroundColor Green
+        return $existing
+    }
+
+    $payload = @{
+        displayName = $NotebookDisplayName
+        description = "Bronze ingestion notebook for Fabric CI/CD demo - Lakehouse: $LakehouseId"
+        type = "Notebook"
+    }
+
+    $created = Invoke-RestJson -Method "POST" -Url "https://api.fabric.microsoft.com/v1/workspaces/$WorkspaceId/items" -AccessToken $FabricToken -Body $payload
+    $notebookItem = $created.Body
+
+    if ($notebookItem -and $notebookItem.id) {
+        Write-Host "Notebook created: $($notebookItem.displayName) (ID: $($notebookItem.id))" -ForegroundColor Green
+        return $notebookItem
+    }
+
+    Write-Warning "Notebook creation response did not include expected fields."
+    return $null
+}
+
 if (-not (Test-Path $ConfigPath)) {
     throw "Config file not found: $ConfigPath"
 }
@@ -284,12 +323,33 @@ $workspaceDescription = [string]$config.workspaceDescription
 $workspace = Get-OrCreate-Workspace -DisplayName $workspaceName -Description $workspaceDescription -CapacityId $capacityId -FabricToken $fabricToken
 
 $lakehouseResults = @()
+$primaryLakehouseId = ""
 foreach ($lh in $config.lakehouses) {
     $lakehouse = Get-OrCreate-Lakehouse -WorkspaceId $workspace.id -DisplayName ([string]$lh.displayName) -Description ([string]$lh.description) -FabricToken $fabricToken
     $lakehouseResults += [PSCustomObject]@{
         displayName = $lakehouse.displayName
         id = $lakehouse.id
         type = $lakehouse.type
+    }
+    if ([string]::IsNullOrWhiteSpace($primaryLakehouseId)) {
+        $primaryLakehouseId = $lakehouse.id
+    }
+}
+
+$notebookResults = @()
+if ($config.PSObject.Properties.Name -contains "notebooks" -and $config.notebooks -and $primaryLakehouseId) {
+    foreach ($nb in $config.notebooks) {
+        $notebookPath = [string]$nb.localPath
+        $notebookName = [string]$nb.displayName
+        $absolutePath = Join-Path (Get-Location) $notebookPath
+        $notebook = Get-OrCreate-Notebook -WorkspaceId $workspace.id -LakehouseId $primaryLakehouseId -NotebookPath $absolutePath -NotebookDisplayName $notebookName -FabricToken $fabricToken
+        if ($notebook -and ($notebook.PSObject.Properties.Name -contains "displayName")) {
+            $notebookResults += [PSCustomObject]@{
+                displayName = [string]$notebook.displayName
+                id = [string]$notebook.id
+                type = [string]$notebook.type
+            }
+        }
     }
 }
 
@@ -298,6 +358,7 @@ $workspaceResult = [PSCustomObject]@{
     workspaceId = $workspace.id
     capacityId = $workspace.capacityId
     lakehouses = $lakehouseResults
+    notebooks = $notebookResults
 }
 
 $pipelineCfg = $config.deploymentPipeline

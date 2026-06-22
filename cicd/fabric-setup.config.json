@@ -8,6 +8,12 @@
       "description": "Bronze ingestion storage for planetary metadata"
     }
   ],
+  "notebooks": [
+    {
+      "displayName": "bronze_planetary_ingestion",
+      "localPath": "fabric/notebooks/bronze_planetary_ingestion.ipynb"
+    }
+  ],
   "deploymentPipeline": {
     "displayName": "geohazard-demo-single-pipeline",
     "description": "Single-workspace pipeline demo for geohazard bronze ingestion"
