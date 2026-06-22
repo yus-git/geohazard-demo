@@ -13,7 +13,7 @@ A lightweight repo to demonstrate end-to-end Fabric engineering patterns:
 - `cicd/parameters.dev.json`: Suggested notebook parameters for Dev.
 - `cicd/parameters.prod.json`: Suggested notebook parameters for Prod.
 - `cicd/promotion-checklist.md`: Practical promotion walkthrough.
-- `docs/workload-context-geohazard.md`: How geohazard RF-1..RF-10 context maps to this dataset.
+- `docs/workload-context-geohazard.md`: How geohazard RF-1 to RF-10 context maps to this dataset.
 
 ## Demo flow
 
