@@ -1,0 +1,10 @@
+{
+  "COLLECTION": "sentinel-2-l2a",
+  "LATITUDE": 49.2827,
+  "LONGITUDE": -123.1207,
+  "RADIUS_KM": 30,
+  "START_DATE": "2025-06-01",
+  "END_DATE": "2025-09-30",
+  "MAX_ITEMS": 150,
+  "TARGET_TABLE": "bronze_satellite_stac_items"
+}
