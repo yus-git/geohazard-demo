@@ -6,6 +6,14 @@
     {
       "displayName": "bronze_lakehouse",
       "description": "Bronze ingestion storage for planetary metadata"
+    },
+    {
+      "displayName": "silver_lakehouse",
+      "description": "Silver curated geohazard tables"
+    },
+    {
+      "displayName": "gold_lakehouse",
+      "description": "Gold analytics-ready geohazard tables"
     }
   ],
   "notebooks": [

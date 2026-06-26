@@ -1,0 +1,71 @@
+{
+  "properties": {
+    "description": "Geohazard bronze medallion orchestration: ingest Planetary Computer STAC metadata and BC DataBC geology in parallel, then build the bronze data overview maps once both succeed.",
+    "activities": [
+      {
+        "name": "Ingest_PC_Collections",
+        "type": "TridentNotebook",
+        "description": "Bronze ingestion of Microsoft Planetary Computer STAC collections for the Maple Ridge AOI.",
+        "dependsOn": [],
+        "policy": {
+          "timeout": "0.12:00:00",
+          "retry": 1,
+          "retryIntervalInSeconds": 60,
+          "secureOutput": false,
+          "secureInput": false
+        },
+        "typeProperties": {
+          "notebookId": "2ea8d23a-e499-412b-a096-ec78ebe08145",
+          "workspaceId": "a7d0f907-bf14-4169-8d34-b8765824aa09"
+        }
+      },
+      {
+        "name": "Ingest_BC_Geology",
+        "type": "TridentNotebook",
+        "description": "Bronze ingestion of BC DataBC WFS geology layers (quaternary, bedrock, faults) for the Maple Ridge AOI.",
+        "dependsOn": [],
+        "policy": {
+          "timeout": "0.12:00:00",
+          "retry": 1,
+          "retryIntervalInSeconds": 60,
+          "secureOutput": false,
+          "secureInput": false
+        },
+        "typeProperties": {
+          "notebookId": "4cc8d648-1183-4a7a-85dd-d1f9bf5ea91b",
+          "workspaceId": "a7d0f907-bf14-4169-8d34-b8765824aa09"
+        }
+      },
+      {
+        "name": "Build_Overview",
+        "type": "TridentNotebook",
+        "description": "Reads all bronze tables and renders the per-layer raster + geology overview maps.",
+        "dependsOn": [
+          {
+            "activity": "Ingest_PC_Collections",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          },
+          {
+            "activity": "Ingest_BC_Geology",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "policy": {
+          "timeout": "0.12:00:00",
+          "retry": 0,
+          "retryIntervalInSeconds": 30,
+          "secureOutput": false,
+          "secureInput": false
+        },
+        "typeProperties": {
+          "notebookId": "e6047d17-ef87-4aaa-b044-d07acdc41d6e",
+          "workspaceId": "a7d0f907-bf14-4169-8d34-b8765824aa09"
+        }
+      }
+    ]
+  }
+}

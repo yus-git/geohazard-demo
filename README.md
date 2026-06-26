@@ -47,27 +47,13 @@ Primary columns include:
 - Planetary Computer credentials are not required for basic STAC metadata search.
 - Use this as a starter pattern for repeatable data engineering and promotion controls.
 
-## One-stop deploy (scripted)
+## Automated Fabric setup via code
 
-Use the provisioning script to create the full demo foundation in one run:
+This repo includes a PowerShell provisioning script that creates the full demo foundation in Fabric:
 
-- Fabric workspace
-- Bronze Lakehouse
-- Notebook item
-- Deployment pipeline with stage 0 workspace assignment
-
-### Prerequisites
-
-- Azure CLI installed
-- Authenticated session (`az login`)
-- Fabric/Power BI permissions to create workspaces, items, and deployment pipelines
-- Optional: set a target subscription if you have multiple
-
-```powershell
-az account set --subscription "<your-subscription-name-or-id>"
-```
-
-### Deploy
+- One demo workspace
+- Bronze Lakehouse in that workspace
+- Deployment pipeline and stage 0 workspace assignment
 
 Run from repo root:
 
@@ -75,57 +61,95 @@ Run from repo root:
 .\scripts\fabric\setup_fabric_demo.ps1 -ConfigPath ".\cicd\fabric-setup.config.json" -OutputPath ".\cicd\fabric-setup.output.json"
 ```
 
-### What gets created
-
-- Workspace: `geohazard-demo` (from config)
-- Lakehouse: `bronze_lakehouse`
-- Notebook item: `bronze_planetary_ingestion`
-- Deployment pipeline: `geohazard-demo-single-pipeline`
-- Stage assignment: workspace assigned to stage 0
-
-### Verify
-
-- Check generated output summary: `cicd/fabric-setup.output.json`
-- In Fabric UI, confirm workspace, lakehouse, notebook, and deployment pipeline exist
-- Open notebook and verify it is attached to `bronze_lakehouse`
-
-Files involved:
+Files:
 
 - `scripts/fabric/setup_fabric_demo.ps1`
 - `cicd/fabric-setup.config.json`
-- `cicd/fabric-setup.output.json` (generated after run)
+- `cicd/fabric-setup.output.json` (generated execution summary)
 
-## Manual setup (UI-first)
+## Bronze ingestion pipeline (`pl_bronze_ingestion`)
 
-If you prefer not to run the script, use this checklist.
+A Fabric Data Factory pipeline orchestrates the multi-source bronze ingestion and a
+map-rendering overview. Definition: `fabric/pipelines/pl_bronze_ingestion.json`.
 
-### 1. Create workspace
+Activities:
 
-1. In Fabric, create a new workspace named `geohazard-demo`.
-2. Assign to an active capacity if needed in your tenant.
+1. `Ingest_PC_Collections` → notebook `bronze_pc_collections` (Microsoft Planetary
+   Computer STAC → 7 bronze tables). Runs in parallel with the next activity.
+2. `Ingest_BC_Geology` → notebook `bronze_bc_surficial_geology` (DataBC WFS → 3 bronze
+   tables). Runs in parallel.
+3. `Build_Overview` → notebook `bronze_data_overview`. Runs only after both ingestions
+   succeed; reads every bronze table and renders one folium map per layer over the
+   Maple Ridge, BC area of interest.
 
-### 2. Create Lakehouse
+### Reproduce end-to-end
 
-1. Inside `geohazard-demo`, create a Lakehouse named `bronze_lakehouse`.
-2. Keep default options (schema-enabled is fine).
+Prerequisites:
 
-### 3. Add notebook
+- Azure CLI signed in: `az login` (tenant `711a9076-1115-4c36-b7b4-82b4f3a05f6f`).
+- The Fabric capacity backing the workspace must be **Active** (not paused):
 
-1. In the workspace, create or import a notebook named `bronze_planetary_ingestion`.
-2. Import notebook content from `fabric/notebooks/bronze_planetary_ingestion.ipynb`.
-3. Attach the notebook to `bronze_lakehouse`.
+  ```powershell
+  az fabric capacity resume --resource-group rg-fabric --capacity-name cpfabric
+  ```
 
-### 4. Configure and run notebook
+- Workspace, lakehouses, and notebooks provisioned (see "Automated Fabric setup via
+  code" above). Resolved IDs are recorded in `cicd/fabric-setup.output.json`.
 
-1. Use values from `cicd/parameters.dev.json` (or your own).
-2. Run the notebook to load metadata into table `bronze_satellite_stac_items`.
+Key identifiers (workspace `Englobecorp_Geohazard` = `a7d0f907-bf14-4169-8d34-b8765824aa09`):
 
-### 5. Create deployment pipeline
+| Item | Display name | ID |
+| --- | --- | --- |
+| Data pipeline | `pl_bronze_ingestion` | `1bcd4990-7fca-4e8b-a356-c5f20405a5dc` |
+| Notebook (PC) | `bronze_pc_collections` | `2ea8d23a-e499-412b-a096-ec78ebe08145` |
+| Notebook (BC) | `bronze_bc_surficial_geology` | `4cc8d648-1183-4a7a-85dd-d1f9bf5ea91b` |
+| Notebook (map) | `bronze_data_overview` | `e6047d17-ef87-4aaa-b044-d07acdc41d6e` |
+| Lakehouse (default) | `bronze_lakehouse` | `fbdd7d1d-00a2-4e0f-84f8-655fce72e4c9` |
 
-1. In Power BI/Fabric deployment pipelines, create pipeline `geohazard-demo-single-pipeline`.
-2. Assign workspace `geohazard-demo` to stage 0.
+> Each bronze notebook must have `bronze_lakehouse` set as its **default lakehouse**
+> (stored in the notebook's `metadata.dependencies.lakehouse`). Without it, relative
+> `saveAsTable` / `spark.read.table` calls fail and the Spark session is cancelled.
 
-### 6. Optional Git integration
+Run the whole pipeline from the terminal (PowerShell):
 
-1. Connect workspace Git integration to this repository.
-2. Commit notebook and item changes through your normal promotion workflow.
+```powershell
+$ws   = "a7d0f907-bf14-4169-8d34-b8765824aa09"
+$plid = "1bcd4990-7fca-4e8b-a356-c5f20405a5dc"
+$base = "https://api.fabric.microsoft.com/v1"
+$h    = @{ Authorization = "Bearer $(az account get-access-token --resource 'https://api.fabric.microsoft.com' --query accessToken -o tsv)" }
+
+# Start the pipeline
+$r   = Invoke-WebRequest -Method Post -Uri "$base/workspaces/$ws/items/$plid/jobs/instances?jobType=Pipeline" -Headers $h -Body '{}' -ContentType 'application/json'
+$loc = @($r.Headers['Location'])[0]
+
+# Poll to completion
+do { Start-Sleep 20; $j = Invoke-RestMethod -Uri $loc -Headers $h; $j.status } while ($j.status -in "NotStarted","InProgress","Running")
+"FINAL: $($j.status)"   # expect: Completed
+```
+
+Validate the result:
+
+```powershell
+# All three notebooks should report Succeeded
+$s = Invoke-RestMethod -Uri "$base/workspaces/$ws/spark/livySessions" -Headers $h
+$s.value | Sort-Object submittedDateTime -Descending | Select-Object -First 3 |
+  ForEach-Object { "{0} | {1}" -f $_.itemName, $_.state }
+```
+
+A `Succeeded` state for `bronze_data_overview` means the folium maps rendered without
+error. Open that notebook in the Fabric portal to view the rendered map outputs per
+layer.
+
+### Run notebooks individually
+
+To run the bronze notebooks on demand (outside the pipeline):
+
+```powershell
+.\scripts\fabric\run_notebooks.ps1
+```
+
+When finished, pause the capacity to stop incurring Azure cost:
+
+```powershell
+az fabric capacity suspend --resource-group rg-fabric --capacity-name cpfabric
+```
