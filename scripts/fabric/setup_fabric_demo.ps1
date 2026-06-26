@@ -1,6 +1,7 @@
 param(
     [string]$ConfigPath = ".\cicd\fabric-setup.config.json",
-    [string]$OutputPath = ".\cicd\fabric-setup.output.json"
+    [string]$OutputPath = ".\cicd\fabric-setup.output.json",
+    [switch]$Reset
 )
 
 Set-StrictMode -Version Latest
@@ -101,6 +102,37 @@ function Get-Active-CapacityId {
     return [string]($active | Select-Object -First 1).id
 }
 
+function Remove-AllWorkspaceItems {
+    param(
+        [string]$WorkspaceId,
+        [string]$FabricToken
+    )
+
+    Write-Output "RESET: Wiping all items in workspace $WorkspaceId ..."
+    $list = Invoke-RestJson -Method "GET" -Url "https://api.fabric.microsoft.com/v1/workspaces/$WorkspaceId/items" -AccessToken $FabricToken
+    $items = @($list.Body.value)
+
+    # SQLEndpoint / MountedDataFactory items are auto-managed and cannot be deleted directly;
+    # they are removed automatically when their parent (e.g. Lakehouse) is deleted.
+    $skipTypes = @("SQLEndpoint", "MountedDataFactory")
+
+    foreach ($item in $items) {
+        if ($skipTypes -contains [string]$item.type) {
+            Write-Output "  skip (auto-managed): $($item.type) '$($item.displayName)'"
+            continue
+        }
+        $itemId = [string]$item.id
+        try {
+            Invoke-RestJson -Method "DELETE" -Url "https://api.fabric.microsoft.com/v1/workspaces/$WorkspaceId/items/$itemId" -AccessToken $FabricToken | Out-Null
+            Write-Output "  deleted: $($item.type) '$($item.displayName)' ($itemId)"
+        }
+        catch {
+            Write-Warning "  failed to delete $($item.type) '$($item.displayName)' ($itemId): $($_.Exception.Message)"
+        }
+    }
+    Write-Output "RESET: Workspace wipe complete."
+}
+
 function Get-OrCreate-Workspace {
     param(
         [string]$DisplayName,
@@ -108,7 +140,6 @@ function Get-OrCreate-Workspace {
         [string]$CapacityId,
         [string]$FabricToken
     )
-
     $list = Invoke-RestJson -Method "GET" -Url "https://api.fabric.microsoft.com/v1/workspaces" -AccessToken $FabricToken
     $existing = @($list.Body.value) | Where-Object { $_.displayName -eq $DisplayName } | Select-Object -First 1
 
@@ -352,6 +383,10 @@ if ([string]::IsNullOrWhiteSpace($workspaceName)) {
 
 $workspaceDescription = [string]$config.workspaceDescription
 $workspace = Get-OrCreate-Workspace -DisplayName $workspaceName -Description $workspaceDescription -CapacityId $capacityId -FabricToken $fabricToken
+
+if ($Reset) {
+    Remove-AllWorkspaceItems -WorkspaceId $workspace.id -FabricToken $fabricToken
+}
 
 $lakehouseResults = @()
 $primaryLakehouseId = ""

@@ -1,5 +1,5 @@
 {
-  "workspaceName": "geohazard-demo",
+  "workspaceName": "Englobecorp_Geohazard",
   "capacityId": "",
   "workspaceDescription": "Fabric CI/CD geohazard bronze ingestion demo",
   "lakehouses": [
@@ -12,6 +12,14 @@
     {
       "displayName": "bronze_planetary_ingestion",
       "localPath": "fabric/notebooks/bronze_planetary_ingestion.ipynb"
+    },
+    {
+      "displayName": "bronze_pc_collections",
+      "localPath": "fabric/notebooks/bronze_pc_collections.ipynb"
+    },
+    {
+      "displayName": "bronze_bc_surficial_geology",
+      "localPath": "fabric/notebooks/bronze_bc_surficial_geology.ipynb"
     }
   ],
   "deploymentPipeline": {
