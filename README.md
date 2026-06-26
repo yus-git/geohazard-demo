@@ -1,88 +1,104 @@
-# Fabric CI/CD Bronze Ingestion Demo
+# Geohazard Medallion Demo on Microsoft Fabric
 
-A lightweight repo to demonstrate end-to-end Fabric engineering patterns:
+An end-to-end Microsoft Fabric demo that ingests public geospatial data and builds a
+**bronze → silver → gold** medallion pipeline for a geohazard screening workflow. It
+shows realistic data-engineering patterns (parameterized ingestion, Delta lakehouses,
+pipeline orchestration) together with CI/CD controls (Git integration and a Fabric
+deployment pipeline).
 
-1. Parameterized notebook ingestion from Microsoft Planetary Computer STAC API
-2. Bronze write into a Lakehouse Delta table
-3. Git integration for source control
-4. Promotion path through a Fabric Deployment Pipeline
+The worked example is **RF-1 soft-soil susceptibility** over Maple Ridge, British
+Columbia: catalogue satellite/geology/soil metadata, extract and align the pixels,
+blend in surveyed soil ground truth, compute per-pixel Susceptibility (S) and
+Consequence (C) ratings, then score a 5×5 risk matrix.
+
+## Medallion architecture
+
+| Layer | Notebook | Lakehouse | What it produces |
+| --- | --- | --- | --- |
+| **Bronze** | `bronze_pc_collections`, `bronze_bc_surficial_geology`, `bronze_bc_soil_survey`, `bronze_data_overview` | `bronze_lakehouse` | STAC item + WFS feature **metadata** (satellite, geology, soil survey) catalogued into Delta tables; folium overview maps |
+| **Silver** | `silver_rf1_soil_susceptibility` | `silver_lakehouse` | AOI pixels clipped to a 10 m grid; RF-1 factor metrics + surveyed soil ground truth + per-pixel S/C ratings |
+| **Gold** | `gold_rf1_risk_matrix` | `gold_lakehouse` | `risk_score = S × C` (1–25), banded Low/Moderate/High/Extreme; risk matrix + band summary |
+
+```
+bronze (catalogue metadata)  ─►  silver (clip + score pixels)  ─►  gold (risk matrix)
+```
+
+`bronze_planetary_ingestion` is a standalone single-collection ingestion demo
+(`sentinel-2-l2a` → `bronze_satellite_stac_items`) kept for the simplest possible
+parameterized-notebook example.
 
 ## Repo structure
 
-- `fabric/notebooks/bronze_planetary_ingestion.ipynb`: Main notebook for bronze ingestion.
-- `cicd/parameters.dev.json`: Suggested notebook parameters for Dev.
-- `cicd/parameters.prod.json`: Suggested notebook parameters for Prod.
-- `cicd/promotion-checklist.md`: Practical promotion walkthrough.
-- `docs/workload-context-geohazard.md`: How geohazard RF-1 to RF-10 context maps to this dataset.
+```
+fabric/
+  notebooks/
+    bronze_pc_collections.ipynb          # Planetary Computer STAC → 7 bronze tables
+    bronze_bc_surficial_geology.ipynb    # DataBC WFS → 3 bronze geology tables
+    bronze_bc_soil_survey.ipynb          # DataBC WFS (SIFT) → bronze soil survey tables
+    bronze_data_overview.ipynb           # reads bronze tables, renders folium maps
+    bronze_planetary_ingestion.ipynb     # single-collection parameterized demo
+    silver_rf1_soil_susceptibility.ipynb # clip + extract pixels, compute S/C ratings
+    gold_rf1_risk_matrix.ipynb           # S × C risk scoring + matrix
+  pipelines/
+    pl_bronze_ingestion.json             # parallel bronze ingestion + overview build
+cicd/
+  fabric-setup.config.json              # provisioning inputs
+  fabric-setup.output.json              # generated provisioning summary (IDs)
+  parameters.dev.json / parameters.prod.json
+  promotion-checklist.md
+docs/
+  data-sources.md                       # every external source, endpoint, and table
+  workload-context-geohazard.md         # RF-1..RF-10 geohazard linkage
+scripts/
+  fabric/
+    setup_fabric_demo.ps1               # provisions workspace, lakehouses, notebooks, pipelines
+    run_notebooks.ps1                   # runs notebooks on demand
+```
 
-## Demo flow
+## Data sources
 
-1. Open the notebook in Fabric workspace `geohazard-demo` and attach `bronze_lakehouse`.
-2. Set parameters (collection, center point, radius, date range).
-3. Run notebook to ingest STAC item metadata and write to bronze table.
-4. Commit notebook changes via Fabric Git integration.
-5. Demonstrate pipeline path by assigning the workspace to stage 0.
+All sources are **public and anonymous** (no keys or token signing) and anchor on the
+same Area of Interest. Only metadata/pixels are read on demand — underlying rasters are
+not downloaded into bronze.
 
-## Bronze output
+| Source | Protocol | Layers / collections | Notebook |
+| --- | --- | --- | --- |
+| Microsoft Planetary Computer STAC | `POST /search` | 7 collections (Sentinel-1/2, Copernicus DEM, ESA WorldCover, IO LULC, ALOS PALSAR, HGB) | `bronze_pc_collections` |
+| BC DataBC (BC Geographic Warehouse) | WFS 2.0.0 `GetFeature` | Quaternary geology, bedrock, faults | `bronze_bc_surficial_geology` |
+| BC DataBC — Soil Information Finder Tool (SIFT) | WFS 2.0.0 `GetFeature` | Soil survey polygons, project boundaries | `bronze_bc_soil_survey` |
 
-Default output table:
+**AOI:** Maple Ridge, BC · centre `49.2193, -122.5984` · 20 km bronze catalogue radius,
+3 km silver analysis clip. Full details in `docs/data-sources.md`.
 
-- `bronze_satellite_stac_items`
+## Provisioned identifiers
 
-Primary columns include:
+Workspace `Englobecorp_Geohazard` = `a7d0f907-bf14-4169-8d34-b8765824aa09`. Resolved IDs
+are recorded in `cicd/fabric-setup.output.json`.
 
-- `ingestion_ts`
-- `item_id`
-- `collection`
-- `datetime_utc`
-- `platform`
-- `eo_cloud_cover`
-- `bbox_minx`, `bbox_miny`, `bbox_maxx`, `bbox_maxy`
-- `asset_count`
-- Query context fields (`query_lat`, `query_lon`, `query_radius_km`, `query_start_date`, `query_end_date`)
+| Item | Display name | ID |
+| --- | --- | --- |
+| Lakehouse | `bronze_lakehouse` | `fbdd7d1d-00a2-4e0f-84f8-655fce72e4c9` |
+| Lakehouse | `silver_lakehouse` | `7818d0c8-eacb-4599-a91c-68d795175857` |
+| Lakehouse | `gold_lakehouse` | `05034b20-db81-4356-8b7c-dbf6ac86f929` |
+| Data pipeline | `pl_bronze_ingestion` | `1bcd4990-7fca-4e8b-a356-c5f20405a5dc` |
+| Deployment pipeline | `geohazard-demo-single-pipeline` | `965750c8-3575-4cb9-855d-82ada8c65a75` |
+| Notebook (PC) | `bronze_pc_collections` | `2ea8d23a-e499-412b-a096-ec78ebe08145` |
+| Notebook (BC) | `bronze_bc_surficial_geology` | `4cc8d648-1183-4a7a-85dd-d1f9bf5ea91b` |
+| Notebook (soil) | `bronze_bc_soil_survey` | _resolved on next `setup_fabric_demo.ps1` run_ |
+| Notebook (map) | `bronze_data_overview` | `e6047d17-ef87-4aaa-b044-d07acdc41d6e` |
 
-## Notes
+> Each notebook must have its layer lakehouse set as the **default lakehouse** (stored in
+> the notebook's `metadata.dependencies.lakehouse`). Without it, relative `saveAsTable` /
+> `spark.read.table` calls fail and the Spark session is cancelled.
 
-- This notebook intentionally keeps transformation minimal (bronze pattern).
-- Planetary Computer credentials are not required for basic STAC metadata search.
-- Use this as a starter pattern for repeatable data engineering and promotion controls.
+## Setup — provision the foundation
 
-## Automated Fabric setup via code
-
-This repo includes a PowerShell provisioning script that creates the full demo foundation in Fabric:
-
-- One demo workspace
-- Bronze Lakehouse in that workspace
-- Deployment pipeline and stage 0 workspace assignment
-
-Run from repo root:
+A PowerShell script provisions the workspace, the three lakehouses, the notebooks, and
+the deployment pipeline. It is idempotent (existing items are detected, not recreated).
 
 ```powershell
 .\scripts\fabric\setup_fabric_demo.ps1 -ConfigPath ".\cicd\fabric-setup.config.json" -OutputPath ".\cicd\fabric-setup.output.json"
 ```
-
-Files:
-
-- `scripts/fabric/setup_fabric_demo.ps1`
-- `cicd/fabric-setup.config.json`
-- `cicd/fabric-setup.output.json` (generated execution summary)
-
-## Bronze ingestion pipeline (`pl_bronze_ingestion`)
-
-A Fabric Data Factory pipeline orchestrates the multi-source bronze ingestion and a
-map-rendering overview. Definition: `fabric/pipelines/pl_bronze_ingestion.json`.
-
-Activities:
-
-1. `Ingest_PC_Collections` → notebook `bronze_pc_collections` (Microsoft Planetary
-   Computer STAC → 7 bronze tables). Runs in parallel with the next activity.
-2. `Ingest_BC_Geology` → notebook `bronze_bc_surficial_geology` (DataBC WFS → 3 bronze
-   tables). Runs in parallel.
-3. `Build_Overview` → notebook `bronze_data_overview`. Runs only after both ingestions
-   succeed; reads every bronze table and renders one folium map per layer over the
-   Maple Ridge, BC area of interest.
-
-### Reproduce end-to-end
 
 Prerequisites:
 
@@ -93,24 +109,17 @@ Prerequisites:
   az fabric capacity resume --resource-group rg-fabric --capacity-name cpfabric
   ```
 
-- Workspace, lakehouses, and notebooks provisioned (see "Automated Fabric setup via
-  code" above). Resolved IDs are recorded in `cicd/fabric-setup.output.json`.
+## Run — bronze ingestion pipeline
 
-Key identifiers (workspace `Englobecorp_Geohazard` = `a7d0f907-bf14-4169-8d34-b8765824aa09`):
+`pl_bronze_ingestion` runs the two ingestions in parallel, then builds the overview maps:
 
-| Item | Display name | ID |
-| --- | --- | --- |
-| Data pipeline | `pl_bronze_ingestion` | `1bcd4990-7fca-4e8b-a356-c5f20405a5dc` |
-| Notebook (PC) | `bronze_pc_collections` | `2ea8d23a-e499-412b-a096-ec78ebe08145` |
-| Notebook (BC) | `bronze_bc_surficial_geology` | `4cc8d648-1183-4a7a-85dd-d1f9bf5ea91b` |
-| Notebook (map) | `bronze_data_overview` | `e6047d17-ef87-4aaa-b044-d07acdc41d6e` |
-| Lakehouse (default) | `bronze_lakehouse` | `fbdd7d1d-00a2-4e0f-84f8-655fce72e4c9` |
+```
+Ingest_PC_Collections ─┐
+                        ├─► Build_Overview
+Ingest_BC_Geology ──────┘
+```
 
-> Each bronze notebook must have `bronze_lakehouse` set as its **default lakehouse**
-> (stored in the notebook's `metadata.dependencies.lakehouse`). Without it, relative
-> `saveAsTable` / `spark.read.table` calls fail and the Spark session is cancelled.
-
-Run the whole pipeline from the terminal (PowerShell):
+Run the whole pipeline from PowerShell:
 
 ```powershell
 $ws   = "a7d0f907-bf14-4169-8d34-b8765824aa09"
@@ -127,10 +136,9 @@ do { Start-Sleep 20; $j = Invoke-RestMethod -Uri $loc -Headers $h; $j.status } w
 "FINAL: $($j.status)"   # expect: Completed
 ```
 
-Validate the result:
+Validate the run — all three notebooks should report `Succeeded`:
 
 ```powershell
-# All three notebooks should report Succeeded
 $s = Invoke-RestMethod -Uri "$base/workspaces/$ws/spark/livySessions" -Headers $h
 $s.value | Sort-Object submittedDateTime -Descending | Select-Object -First 3 |
   ForEach-Object { "{0} | {1}" -f $_.itemName, $_.state }
@@ -142,14 +150,45 @@ layer.
 
 ### Run notebooks individually
 
-To run the bronze notebooks on demand (outside the pipeline):
-
 ```powershell
 .\scripts\fabric\run_notebooks.ps1
 ```
 
-When finished, pause the capacity to stop incurring Azure cost:
+## Run — silver and gold (RF-1)
+
+After bronze is populated, run the analytics notebooks in order (in the Fabric portal or
+via `run_notebooks.ps1`):
+
+1. `silver_rf1_soil_susceptibility` — clips the AOI to a 10 m UTM 10N grid, pulls the
+   Planetary Computer COG pixels, computes the RF-1 factor metrics, **rasterizes the BC
+   soil-survey (SIFT) polygons as soft-soil ground truth**, and writes
+   `silver_rf1_soil_susceptibility` with the soil signal and per-pixel **S** and **C**
+   ratings (1–5). The soil survey carries the largest weight in S, so it flows straight
+   through to the gold risk score.
+2. `gold_rf1_risk_matrix` — scores `risk_score = S × C` (1–25), bands it
+   (Low 1–4 · Moderate 5–9 · High 10–19 · Extreme 20–25), and writes:
+   - `gold_rf1_risk_pixels` — per-pixel risk score + band (with coordinates)
+   - `gold_rf1_risk_matrix` — the 5×5 S×C grid (pixel count, mean risk, band)
+   - `gold_rf1_band_summary` — area (km²) and share per risk band
+
+## CI/CD path
+
+- **Git integration** — commit notebook and pipeline changes through Fabric's source
+  control to version the workspace.
+- **Deployment pipeline** — `geohazard-demo-single-pipeline` has the workspace assigned
+  to stage 0. Assign additional workspaces to later stages for true cross-stage
+  promotion. See `cicd/promotion-checklist.md` and `cicd/parameters.{dev,prod}.json`.
+
+## Cost — pause when finished
 
 ```powershell
 az fabric capacity suspend --resource-group rg-fabric --capacity-name cpfabric
 ```
+
+## Scope note
+
+This repo demonstrates ingestion and medallion engineering patterns plus a worked RF-1
+risk model. The RF-1 ratings use availability-weighted proxies over public data for
+illustration; production hazard scoring would extend the silver/gold layers with field
+data and calibrated models. Geohazard RF-1..RF-10 context is in
+`docs/workload-context-geohazard.md`.

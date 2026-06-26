@@ -283,6 +283,7 @@ function Get-OrCreate-Notebook {
     param(
         [string]$WorkspaceId,
         [string]$LakehouseId,
+        [string]$LakehouseName,
         [string]$NotebookPath,
         [string]$NotebookDisplayName,
         [string]$FabricToken
@@ -304,7 +305,7 @@ function Get-OrCreate-Notebook {
     else {
         $payload = @{
             displayName = $NotebookDisplayName
-            description = "Bronze ingestion notebook for Fabric CI/CD demo - Lakehouse: $LakehouseId"
+            description = "Geohazard medallion notebook for Fabric CI/CD demo - Lakehouse: $LakehouseName ($LakehouseId)"
             type = "Notebook"
         }
 
@@ -323,7 +324,32 @@ function Get-OrCreate-Notebook {
     try {
         $notebookContent = Get-Content $NotebookPath -Raw
         $notebookJson = $notebookContent | ConvertFrom-Json
-        
+
+        # Inject/overwrite the default lakehouse binding so relative saveAsTable / spark.read.table
+        # calls resolve to the correct medallion layer (bronze/silver/gold) when run headless.
+        if ($LakehouseId) {
+            $lakehouseDep = [PSCustomObject]@{
+                known_lakehouses               = @([PSCustomObject]@{ id = $LakehouseId })
+                default_lakehouse              = $LakehouseId
+                default_lakehouse_name         = $LakehouseName
+                default_lakehouse_workspace_id = $WorkspaceId
+            }
+            $dependencies = [PSCustomObject]@{ lakehouse = $lakehouseDep }
+
+            if (-not $notebookJson.metadata) {
+                $notebookJson | Add-Member -NotePropertyName metadata -NotePropertyValue ([PSCustomObject]@{}) -Force
+            }
+            if ($notebookJson.metadata.PSObject.Properties.Name -contains "dependencies") {
+                $notebookJson.metadata.dependencies = $dependencies
+            }
+            else {
+                $notebookJson.metadata | Add-Member -NotePropertyName dependencies -NotePropertyValue $dependencies -Force
+            }
+
+            $notebookContent = $notebookJson | ConvertTo-Json -Depth 64
+            Write-Host "  Bound default lakehouse: $LakehouseName ($LakehouseId)" -ForegroundColor DarkGray
+        }
+
         $updatePayload = @{
             definition = @{
                 format = "ipynb"
@@ -404,16 +430,29 @@ foreach ($lh in $config.lakehouses) {
 
 $notebookResults = @()
 if ($config.PSObject.Properties.Name -contains "notebooks" -and $config.notebooks -and $primaryLakehouseId) {
+    # name -> id lookup so each notebook can bind to its own medallion-layer lakehouse
+    $lakehouseByName = @{}
+    foreach ($lhr in $lakehouseResults) { $lakehouseByName[[string]$lhr.displayName] = [string]$lhr.id }
+
     foreach ($nb in $config.notebooks) {
         $notebookPath = [string]$nb.localPath
         $notebookName = [string]$nb.displayName
         $absolutePath = Join-Path (Get-Location) $notebookPath
-        $notebook = Get-OrCreate-Notebook -WorkspaceId $workspace.id -LakehouseId $primaryLakehouseId -NotebookPath $absolutePath -NotebookDisplayName $notebookName -FabricToken $fabricToken
+
+        # Resolve the notebook's default lakehouse (config "lakehouse" name), fall back to the primary (bronze)
+        $targetLakehouseName = if ($nb.PSObject.Properties.Name -contains "lakehouse" -and $nb.lakehouse) { [string]$nb.lakehouse } else { "" }
+        $targetLakehouseId = if ($targetLakehouseName -and $lakehouseByName.ContainsKey($targetLakehouseName)) { $lakehouseByName[$targetLakehouseName] } else { $primaryLakehouseId }
+        if (-not $targetLakehouseName) {
+            $targetLakehouseName = ($lakehouseResults | Where-Object { $_.id -eq $targetLakehouseId } | Select-Object -First 1).displayName
+        }
+
+        $notebook = Get-OrCreate-Notebook -WorkspaceId $workspace.id -LakehouseId $targetLakehouseId -LakehouseName $targetLakehouseName -NotebookPath $absolutePath -NotebookDisplayName $notebookName -FabricToken $fabricToken
         if ($notebook -and ($notebook.PSObject.Properties.Name -contains "displayName")) {
             $notebookResults += [PSCustomObject]@{
                 displayName = [string]$notebook.displayName
                 id = [string]$notebook.id
                 type = [string]$notebook.type
+                lakehouse = $targetLakehouseName
             }
         }
     }

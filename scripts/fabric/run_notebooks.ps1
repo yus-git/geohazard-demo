@@ -29,8 +29,13 @@ if (-not (Test-Path $outputPath)) {
 
 $state = Get-Content $outputPath -Raw | ConvertFrom-Json
 $workspaceId = $state.workspace.workspaceId
-$lakehouse = $state.workspace.lakehouses | Select-Object -First 1
-if (-not $lakehouse) { throw "No lakehouse found in $outputPath." }
+$lakehouses = $state.workspace.lakehouses
+$defaultLakehouse = $lakehouses | Select-Object -First 1
+if (-not $defaultLakehouse) { throw "No lakehouse found in $outputPath." }
+
+# name -> lakehouse object lookup so each notebook binds to its own medallion-layer lakehouse
+$lakehouseByName = @{}
+foreach ($lh in $lakehouses) { $lakehouseByName[[string]$lh.displayName] = $lh }
 
 $allNotebooks = $state.workspace.notebooks
 if ($Notebooks) {
@@ -39,7 +44,7 @@ if ($Notebooks) {
 if (-not $allNotebooks) { throw "No matching notebooks to run." }
 
 Write-Host "Workspace : $($state.workspace.workspaceName) ($workspaceId)"
-Write-Host "Lakehouse : $($lakehouse.displayName) ($($lakehouse.id))"
+Write-Host "Lakehouses: $($lakehouses.displayName -join ', ')"
 Write-Host "Notebooks : $($allNotebooks.displayName -join ', ')"
 Write-Host ""
 
@@ -50,23 +55,29 @@ function Get-FabricToken {
 $token = Get-FabricToken
 $base = "https://api.fabric.microsoft.com/v1"
 
-$body = @{
-    executionData = @{
-        configuration = @{
-            useStarterPool   = $true
-            defaultLakehouse = @{
-                name        = $lakehouse.displayName
-                id          = $lakehouse.id
-                workspaceId = $workspaceId
-            }
-        }
-    }
-} | ConvertTo-Json -Depth 6
-
 $jobs = @()
 foreach ($nb in $allNotebooks) {
+    # Resolve this notebook's lakehouse (recorded by setup) or fall back to the primary/bronze lakehouse
+    $nbLakehouse = $defaultLakehouse
+    if ($nb.PSObject.Properties.Name -contains "lakehouse" -and $nb.lakehouse -and $lakehouseByName.ContainsKey([string]$nb.lakehouse)) {
+        $nbLakehouse = $lakehouseByName[[string]$nb.lakehouse]
+    }
+
+    $body = @{
+        executionData = @{
+            configuration = @{
+                useStarterPool   = $true
+                defaultLakehouse = @{
+                    name        = $nbLakehouse.displayName
+                    id          = $nbLakehouse.id
+                    workspaceId = $workspaceId
+                }
+            }
+        }
+    } | ConvertTo-Json -Depth 6
+
     $uri = "$base/workspaces/$workspaceId/items/$($nb.id)/jobs/RunNotebook/instances"
-    Write-Host "Submitting run: $($nb.displayName) ..."
+    Write-Host "Submitting run: $($nb.displayName)  (lakehouse: $($nbLakehouse.displayName)) ..."
     $resp = Invoke-WebRequest -Method Post -Uri $uri -Headers @{ Authorization = "Bearer $token" } -ContentType "application/json" -Body $body
     $location = $resp.Headers["Location"]
     if ($location -is [array]) { $location = $location[0] }

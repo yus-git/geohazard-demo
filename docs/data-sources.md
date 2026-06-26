@@ -63,6 +63,27 @@ Province-wide geology vector features fetched as GeoJSON over WFS, clipped to th
 
 ---
 
+## 3. BC Soil Information Finder Tool (SIFT) — DataBC WFS
+
+Soils data behind the [BC Soil Information Finder Tool (SIFT)](https://www2.gov.bc.ca/gov/content/environment/air-land-water/land/soil/soil-information-finder), fetched as GeoJSON over WFS from the BC Geographic Warehouse, clipped to the AOI bounding box.
+
+| | |
+|---|---|
+| **Endpoint** | `https://openmaps.gov.bc.ca/geo/pub/wfs` |
+| **Protocol** | WFS 2.0.0 `GetFeature`, `outputFormat=application/json`, `srsName=EPSG:4326` |
+| **Auth** | None (public read) |
+| **Feature cap** | 5000 features per layer |
+| **Notebook** | `bronze_bc_soil_survey.ipynb` |
+
+### Layers
+
+| DataBC layer | Bronze table | Theme |
+|---|---|---|
+| `pub:WHSE_TERRESTRIAL_ECOLOGY.STE_SOIL_SURVEYS_MVW` | `bronze_bc_soil_survey_polygons` | Soil survey polygons (name, drainage, texture, parent material per component) |
+| `pub:WHSE_TERRESTRIAL_ECOLOGY.STE_SOIL_PROJ_BOUNDARIES_SVW` | `bronze_bc_soil_project_boundaries` | Soil survey project boundaries / mapping study areas |
+
+---
+
 ## Orchestration
 
 `fabric/pipelines/pl_bronze_ingestion.json` runs both sources in parallel, then builds the overview maps:
