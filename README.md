@@ -47,13 +47,27 @@ Primary columns include:
 - Planetary Computer credentials are not required for basic STAC metadata search.
 - Use this as a starter pattern for repeatable data engineering and promotion controls.
 
-## Automated Fabric setup via code
+## One-stop deploy (scripted)
 
-This repo includes a PowerShell provisioning script that creates the full demo foundation in Fabric:
+Use the provisioning script to create the full demo foundation in one run:
 
-- One demo workspace
-- Bronze Lakehouse in that workspace
-- Deployment pipeline and stage 0 workspace assignment
+- Fabric workspace
+- Bronze Lakehouse
+- Notebook item
+- Deployment pipeline with stage 0 workspace assignment
+
+### Prerequisites
+
+- Azure CLI installed
+- Authenticated session (`az login`)
+- Fabric/Power BI permissions to create workspaces, items, and deployment pipelines
+- Optional: set a target subscription if you have multiple
+
+```powershell
+az account set --subscription "<your-subscription-name-or-id>"
+```
+
+### Deploy
 
 Run from repo root:
 
@@ -61,8 +75,57 @@ Run from repo root:
 .\scripts\fabric\setup_fabric_demo.ps1 -ConfigPath ".\cicd\fabric-setup.config.json" -OutputPath ".\cicd\fabric-setup.output.json"
 ```
 
-Files:
+### What gets created
+
+- Workspace: `geohazard-demo` (from config)
+- Lakehouse: `bronze_lakehouse`
+- Notebook item: `bronze_planetary_ingestion`
+- Deployment pipeline: `geohazard-demo-single-pipeline`
+- Stage assignment: workspace assigned to stage 0
+
+### Verify
+
+- Check generated output summary: `cicd/fabric-setup.output.json`
+- In Fabric UI, confirm workspace, lakehouse, notebook, and deployment pipeline exist
+- Open notebook and verify it is attached to `bronze_lakehouse`
+
+Files involved:
 
 - `scripts/fabric/setup_fabric_demo.ps1`
 - `cicd/fabric-setup.config.json`
-- `cicd/fabric-setup.output.json` (generated execution summary)
+- `cicd/fabric-setup.output.json` (generated after run)
+
+## Manual setup (UI-first)
+
+If you prefer not to run the script, use this checklist.
+
+### 1. Create workspace
+
+1. In Fabric, create a new workspace named `geohazard-demo`.
+2. Assign to an active capacity if needed in your tenant.
+
+### 2. Create Lakehouse
+
+1. Inside `geohazard-demo`, create a Lakehouse named `bronze_lakehouse`.
+2. Keep default options (schema-enabled is fine).
+
+### 3. Add notebook
+
+1. In the workspace, create or import a notebook named `bronze_planetary_ingestion`.
+2. Import notebook content from `fabric/notebooks/bronze_planetary_ingestion.ipynb`.
+3. Attach the notebook to `bronze_lakehouse`.
+
+### 4. Configure and run notebook
+
+1. Use values from `cicd/parameters.dev.json` (or your own).
+2. Run the notebook to load metadata into table `bronze_satellite_stac_items`.
+
+### 5. Create deployment pipeline
+
+1. In Power BI/Fabric deployment pipelines, create pipeline `geohazard-demo-single-pipeline`.
+2. Assign workspace `geohazard-demo` to stage 0.
+
+### 6. Optional Git integration
+
+1. Connect workspace Git integration to this repository.
+2. Commit notebook and item changes through your normal promotion workflow.
