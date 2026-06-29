@@ -216,7 +216,7 @@ function Get-OrCreate-DeploymentPipeline {
     return $created.Body
 }
 
-function Assign-Workspace-To-PipelineStage {
+function Set-WorkspaceToPipelineStage {
     param(
         [string]$PipelineId,
         [int]$StageOrder,
@@ -395,7 +395,7 @@ $workspaceResult = [PSCustomObject]@{
 $pipelineCfg = $config.deploymentPipeline
 $pipeline = Get-OrCreate-DeploymentPipeline -DisplayName ([string]$pipelineCfg.displayName) -Description ([string]$pipelineCfg.description) -PowerBiToken $powerBiToken
 
-$stage0State = Assign-Workspace-To-PipelineStage -PipelineId $pipeline.id -StageOrder 0 -WorkspaceId $workspaceResult.workspaceId -PowerBiToken $powerBiToken
+$stage0State = Set-WorkspaceToPipelineStage -PipelineId $pipeline.id -StageOrder 0 -WorkspaceId $workspaceResult.workspaceId -PowerBiToken $powerBiToken
 
 $output = [PSCustomObject]@{
     generatedAtUtc = (Get-Date).ToUniversalTime().ToString("o")
