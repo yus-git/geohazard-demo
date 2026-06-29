@@ -91,6 +91,18 @@ are recorded in `cicd/fabric-setup.output.json`.
 > the notebook's `metadata.dependencies.lakehouse`). Without it, relative `saveAsTable` /
 > `spark.read.table` calls fail and the Spark session is cancelled.
 
+## Deploy guides
+
+Two beginner-friendly, step-by-step guides cover the full deployment from scratch:
+
+- **[DEPLOY_AUTOMATED.md](DEPLOY_AUTOMATED.md)** — one-stop scripted deploy: prerequisites,
+  `az login`, run `setup_fabric_demo.ps1`, and verify what gets created.
+- **[DEPLOY_MANUAL.md](DEPLOY_MANUAL.md)** — UI-first manual setup: create the workspace,
+  lakehouses, notebooks, and deployment pipeline by hand in the Fabric portal.
+
+The condensed provisioning and run steps are below; use the guides above for the full
+walkthrough with placeholders to fill in for your own tenant.
+
 ## Setup — provision the foundation
 
 A PowerShell script provisions the workspace, the three lakehouses, the notebooks, and
